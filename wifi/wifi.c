@@ -61,12 +61,17 @@ extern void get_dhcp_info();
 extern int init_module(void *, unsigned long, const char *);
 extern int delete_module(const char *, unsigned int);
 
+static int wifi_mode = 0;
+
 static char primary_iface[PROPERTY_VALUE_MAX];
 // TODO: use new ANDROID_SOCKET mechanism, once support for multiple
 // sockets is in
 
 #ifndef WIFI_DRIVER_MODULE_ARG
 #define WIFI_DRIVER_MODULE_ARG          ""
+#endif
+#ifndef WIFI_DRIVER_MODULE_AP_ARG
+#define WIFI_DRIVER_MODULE_AP_ARG       ""
 #endif
 #ifndef WIFI_FIRMWARE_LOADER
 #define WIFI_FIRMWARE_LOADER		""
@@ -95,6 +100,7 @@ static const char DRIVER_MODULE_NAME[]  = WIFI_DRIVER_MODULE_NAME;
 static const char DRIVER_MODULE_TAG[]   = WIFI_DRIVER_MODULE_NAME " ";
 static const char DRIVER_MODULE_PATH[]  = WIFI_DRIVER_MODULE_PATH;
 static const char DRIVER_MODULE_ARG[]   = WIFI_DRIVER_MODULE_ARG;
+static const char DRIVER_MODULE_AP_ARG[] = WIFI_DRIVER_MODULE_AP_ARG;
 #endif
 static const char FIRMWARE_LOADER[]     = WIFI_FIRMWARE_LOADER;
 static const char DRIVER_PROP_NAME[]    = "wlan.driver.status";
@@ -229,6 +235,19 @@ int wifi_load_driver()
 #ifdef WIFI_DRIVER_MODULE_PATH
     char driver_status[PROPERTY_VALUE_MAX];
     int count = 100; /* wait at most 20 seconds for completion */
+    char module_arg2[256];
+
+#ifdef SAMSUNG_WIFI
+#ifdef WIFI_DRIVER_MODULE_AP_ARG
+    if (wifi_mode == 1) {
+        snprintf(module_arg2, sizeof(module_arg2), DRIVER_MODULE_AP_ARG);
+    } else {
+        snprintf(module_arg2, sizeof(module_arg2), DRIVER_MODULE_ARG);
+    }
+#else
+    char* type = get_samsung_wifi_type();
+    snprintf(module_arg2, sizeof(module_arg2), "%s%s", DRIVER_MODULE_ARG, type == NULL ? "" : type);
+#endif
 
     if (is_wifi_driver_loaded()) {
         return 0;
@@ -909,4 +928,9 @@ int wifi_change_fw_path(const char *fwpath)
     }
     close(fd);
     return ret;
+}
+
+int wifi_set_mode(int mode) {
+    wifi_mode = mode;
+    return 0;
 }
