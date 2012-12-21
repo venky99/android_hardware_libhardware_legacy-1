@@ -249,6 +249,11 @@ int wifi_load_driver()
     snprintf(module_arg2, sizeof(module_arg2), "%s%s", DRIVER_MODULE_ARG, type == NULL ? "" : type);
 #endif
 
+    if (insmod(DRIVER_MODULE_PATH, module_arg2) < 0) {
+#else
+    if (insmod(DRIVER_MODULE_PATH, DRIVER_MODULE_ARG) < 0) {
+#endif
+
     if (is_wifi_driver_loaded()) {
         return 0;
     }
