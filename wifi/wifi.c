@@ -66,6 +66,7 @@ static int exit_sockets[MAX_CONNS][2];
 
 extern int do_dhcp();
 extern int ifc_init();
+extern int ifc_up(const char *name);
 extern void ifc_close();
 extern char *dhcp_lasterror();
 extern void get_dhcp_info();
@@ -94,7 +95,12 @@ struct genl_family *nl80211;
 #ifndef WIFI_FIRMWARE_LOADER
 #define WIFI_FIRMWARE_LOADER		""
 #endif
+#ifndef WIFI_PRE_LOADER
+#define WIFI_PRE_LOADER                 ""
+#endif
+
 #define WIFI_TEST_INTERFACE		"sta"
+#define WIFI_DRIVER_LOADER_DELAY        2000000
 
 #ifndef WIFI_DRIVER_FW_PATH_STA
 #define WIFI_DRIVER_FW_PATH_STA		NULL
@@ -108,6 +114,19 @@ struct genl_family *nl80211;
 
 #ifndef WIFI_DRIVER_FW_PATH_PARAM
 #define WIFI_DRIVER_FW_PATH_PARAM	"/sys/module/wlan/parameters/fwpath"
+#endif
+
+#ifndef WIFI_AP_DRIVER_MODULE_NAME
+#define WIFI_AP_DRIVER_MODULE_NAME      "tiap_drv"
+#endif
+#ifndef WIFI_AP_DRIVER_MODULE_PATH
+#define WIFI_AP_DRIVER_MODULE_PATH      "/system/lib/modules/tiap_drv.ko"
+#endif
+#ifndef WIFI_AP_DRIVER_MODULE_ARG
+#define WIFI_AP_DRIVER_MODULE_ARG       ""
+#endif
+#ifndef WIFI_AP_FIRMWARE_LOADER
+#define WIFI_AP_FIRMWARE_LOADER         "wlan_ap_loader"
 #endif
 
 static const char IFACE_DIR[]           = "/data/system/wpa_supplicant";
@@ -129,6 +148,14 @@ static const char SUPP_CONFIG_FILE[]    = "/data/misc/wifi/wpa_supplicant.conf";
 static const char P2P_CONFIG_FILE[]     = "/data/misc/wifi/p2p_supplicant.conf";
 static const char CONTROL_IFACE_PATH[]  = "/data/misc/wifi/sockets";
 static const char MODULE_FILE[]         = "/proc/modules";
+static const char PRELOADER[]           = WIFI_PRE_LOADER;
+
+static const char AP_DRIVER_MODULE_NAME[]  = WIFI_AP_DRIVER_MODULE_NAME;
+static const char AP_DRIVER_MODULE_TAG[]   = WIFI_AP_DRIVER_MODULE_NAME " ";
+static const char AP_DRIVER_MODULE_PATH[]  = WIFI_AP_DRIVER_MODULE_PATH;
+static const char AP_DRIVER_MODULE_ARG[]   = WIFI_AP_DRIVER_MODULE_ARG;
+static const char AP_FIRMWARE_LOADER[]     = WIFI_AP_FIRMWARE_LOADER;
+static const char AP_DRIVER_PROP_NAME[]    = "wlan.ap.driver.status";
 
 static const char SUPP_ENTROPY_FILE[]   = WIFI_ENTROPY_FILE;
 static unsigned char dummy_key[21] = { 0x02, 0x11, 0xbe, 0x33, 0x43, 0x35,
@@ -232,6 +259,114 @@ int do_dhcp_request(int *ipaddr, int *gateway, int *mask,
 
 const char *get_dhcp_error_string() {
     return dhcp_lasterror();
+}
+
+static int check_hotspot_driver_loaded() {
+    char driver_status[PROPERTY_VALUE_MAX];
+    FILE *proc;
+    char line[sizeof(AP_DRIVER_MODULE_TAG)+10];
+
+    if (!property_get(AP_DRIVER_PROP_NAME, driver_status, NULL)
+            || strcmp(driver_status, "ok") != 0) {
+        return 0;  /* driver not loaded */
+    }
+    /*
+     * If the property says the driver is loaded, check to
+     * make sure that the property setting isn't just left
+     * over from a previous manual shutdown or a runtime
+     * crash.
+     */
+    if ((proc = fopen(MODULE_FILE, "r")) == NULL) {
+        ALOGW("Could not open %s: %s", MODULE_FILE, strerror(errno));
+        property_set(AP_DRIVER_PROP_NAME, "unloaded");
+        return 0;
+    }
+    while ((fgets(line, sizeof(line), proc)) != NULL) {
+        if (strncmp(line, AP_DRIVER_MODULE_TAG, strlen(AP_DRIVER_MODULE_TAG)) == 0) {
+            fclose(proc);
+            return 1;
+        }
+    }
+    fclose(proc);
+    property_set(AP_DRIVER_PROP_NAME, "unloaded");
+    return 0;
+}
+
+int hotspot_load_driver()
+{
+    char driver_status[PROPERTY_VALUE_MAX];
+    int count = 100; /* wait at most 20 seconds for completion */
+
+    if (check_hotspot_driver_loaded()) {
+        return 0;
+    }
+
+    if (!strcmp(PRELOADER,"") == 0) {
+        ALOGW("Starting WIFI pre-loader");
+        property_set("ctl.start", PRELOADER);
+    }
+
+#ifdef WIFI_EXT_MODULE_PATH
+    if (insmod(EXT_MODULE_PATH, EXT_MODULE_ARG) < 0)
+        return -1;
+    usleep(WIFI_DRIVER_LOADER_DELAY);
+#endif
+
+    if (insmod(AP_DRIVER_MODULE_PATH, AP_DRIVER_MODULE_ARG) < 0){
+#ifdef WIFI_EXT_MODULE_NAME
+        rmmod(EXT_MODULE_NAME);
+#endif
+        return -1;
+    }
+
+    if (strcmp(AP_FIRMWARE_LOADER,"") == 0) {
+        usleep(WIFI_DRIVER_LOADER_DELAY);
+        property_set(AP_DRIVER_PROP_NAME, "ok");
+    }
+    else {
+        property_set("ctl.start", AP_FIRMWARE_LOADER);
+        usleep(WIFI_DRIVER_LOADER_DELAY);
+    }
+    sched_yield();
+    while (count-- > 0) {
+        if (property_get(AP_DRIVER_PROP_NAME, driver_status, NULL)) {
+            if (strcmp(driver_status, "ok") == 0)
+                return 0;
+            else if (strcmp(AP_DRIVER_PROP_NAME, "failed") == 0) {
+                hotspot_unload_driver();
+                return -1;
+            }
+        }
+        usleep(WIFI_DRIVER_LOADER_DELAY);
+    }
+    property_set(AP_DRIVER_PROP_NAME, "timeout");
+    hotspot_unload_driver();
+    return -1;
+}
+
+int hotspot_unload_driver()
+{
+    int count = 20; /* wait at most 10 seconds for completion */
+
+    if (rmmod(AP_DRIVER_MODULE_NAME) == 0) {
+        while (count-- > 0) {
+            if (!check_hotspot_driver_loaded())
+                break;
+            usleep(500000);
+        }
+        if (count) {
+#ifdef WIFI_EXT_MODULE_NAME
+            if (rmmod(EXT_MODULE_NAME) == 0)
+#endif
+                if (!strcmp(PRELOADER,"") == 0) {
+                    ALOGW("Stopping WIFI pre-loader");
+                    property_set("ctl.stop", PRELOADER);
+                }
+            return 0;
+        }
+        return -1;
+    } else
+        return -1;
 }
 
 int is_wifi_driver_loaded() {

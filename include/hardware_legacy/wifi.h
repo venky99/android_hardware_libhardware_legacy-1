@@ -36,6 +36,20 @@ int wifi_load_driver();
 int wifi_unload_driver();
 
 /**
+ * Load the Hotspot driver.
+ *
+ * @return 0 on success, < 0 on failure.
+ */
+int hotspot_load_driver();
+
+/**
+ * Unload the Hotspot driver.
+ *
+ * @return 0 on success, < 0 on failure.
+ */
+int hotspot_unload_driver();
+
+/**
  * Check if the Wi-Fi driver is loaded.
  *
  * @return 0 on success, < 0 on failure.
@@ -107,6 +121,7 @@ int wifi_wait_for_event(const char *iface, char *buf, size_t len);
  */
 int wifi_command(const char *iface, const char *command, char *reply, size_t *reply_len);
 
+void wifi_close_sockets(int index);
 /**
  * do_dhcp_request() issues a dhcp request and returns the acquired
  * information. 
