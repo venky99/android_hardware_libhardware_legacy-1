@@ -154,6 +154,22 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
             return BAD_VALUE;
         }
 
+#ifdef HAVE_FM_RADIO
+        if (device == AUDIO_DEVICE_OUT_FM) {
+            AudioOutputDescriptor *out = mOutputs.valueFor(mPrimaryOutput);
+            if (state == AudioSystem::DEVICE_STATE_AVAILABLE) {
+                out->changeRefCount(AudioSystem::FM, 1);
+                if (out->mRefCount[AudioSystem::FM] > 0)
+                    mpClientInterface->setParameters(0, String8("fm_on=1"));
+            }
+            else {
+                out->changeRefCount(AudioSystem::FM, -1);
+                if (out->mRefCount[AudioSystem::FM] <= 0)
+                    mpClientInterface->setParameters(0, String8("fm_off=1"));
+            }
+        }
+#endif
+
         checkA2dpSuspend();
         checkOutputForAllStrategies();
         // outputs must be closed after checkOutputForAllStrategies() is executed
@@ -407,11 +423,17 @@ void AudioPolicyManagerBase::setForceUse(AudioSystem::force_use usage, AudioSyst
             config != AudioSystem::FORCE_WIRED_ACCESSORY &&
             config != AudioSystem::FORCE_ANALOG_DOCK &&
             config != AudioSystem::FORCE_DIGITAL_DOCK && config != AudioSystem::FORCE_NONE &&
-            config != AudioSystem::FORCE_NO_BT_A2DP) {
+            config != AudioSystem::FORCE_NO_BT_A2DP &&
+            config != AudioSystem::FORCE_SPEAKER) {
             ALOGW("setForceUse() invalid config %d for FOR_MEDIA", config);
             return;
         }
         mForceUse[usage] = config;
+        {
+            uint32_t device = getDeviceForStrategy(STRATEGY_MEDIA, false);
+            setOutputDevice(mPrimaryOutput, device);
+        }
+
         break;
     case AudioSystem::FOR_RECORD:
         if (config != AudioSystem::FORCE_BT_SCO && config != AudioSystem::FORCE_WIRED_ACCESSORY &&
@@ -1188,6 +1210,11 @@ bool AudioPolicyManagerBase::isStreamActive(int stream, uint32_t inPastMs) const
             return true;
         }
     }
+#ifdef HAVE_FM_RADIO
+    if (stream == AudioSystem::MUSIC && (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_FM)) {
+        return true;
+    }
+#endif
     return false;
 }
 
