@@ -1036,8 +1036,7 @@ void AudioPolicyManagerBase::initStreamVolume(AudioSystem::stream_type stream,
 
 status_t AudioPolicyManagerBase::setStreamVolumeIndex(AudioSystem::stream_type stream,
                                                       int index,
-                                                      audio_devices_t device)
-{
+                                                      audio_devices_t device) {
 
     if ((index < mStreams[stream].mIndexMin) || (index > mStreams[stream].mIndexMax)) {
         return BAD_VALUE;
@@ -1065,7 +1064,7 @@ status_t AudioPolicyManagerBase::setStreamVolumeIndex(AudioSystem::stream_type s
         audio_devices_t curDevice =
                 getDeviceForVolume(mOutputs.valueAt(i)->device());
 #ifndef ICS_AUDIO_BLOB
-        if ((device == AUDIO_DEVICE_OUT_DEFAULT) || (device == curDevice)) {
+        if ((device == AUDIO_DEVICE_OUT_DEFAULT) || (device == curDevice))
 #endif
         {
             status_t volStatus = checkAndSetVolume(stream, index, mOutputs.keyAt(i), curDevice);
@@ -1079,8 +1078,7 @@ status_t AudioPolicyManagerBase::setStreamVolumeIndex(AudioSystem::stream_type s
 
 status_t AudioPolicyManagerBase::getStreamVolumeIndex(AudioSystem::stream_type stream,
                                                       int *index,
-                                                      audio_devices_t device)
-{
+                                                      audio_devices_t device) {
     if (index == NULL) {
         return BAD_VALUE;
     }
